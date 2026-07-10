@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pague com PIX</title>
+<script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
+<style>
+  :root {
+    --bg: #0b0b0f;
+    --card: #16161d;
+    --fg: #f5f5f7;
+    --muted: #8a8a99;
+    --accent: #f472b6;
+    --accent-fg: #2b0a1c;
+    --warn: #f0b429;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0;
+    background: var(--bg); color: var(--fg);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    min-height: 100dvh;
+  }
+  main {
+    max-width: 420px; margin: 0 auto;
+    padding: 24px 20px 40px;
+    display: flex; flex-direction: column; align-items: center; gap: 20px;
+  }
+  h1 { font-size: 22px; margin: 0; font-weight: 600; }
+  .recebedor { color: var(--muted); margin: -10px 0 0; font-size: 14px; }
+  .qr-wrap {
+    background: #fff; padding: 14px; border-radius: 16px;
+    display: flex; justify-content: center; align-items: center;
+  }
+  #qr canvas { display: block; }
+  button {
+    width: 100%; max-width: 320px;
+    padding: 16px 20px; border: 0; border-radius: 14px;
+    background: var(--accent); color: var(--accent-fg);
+    font-size: 16px; font-weight: 600; cursor: pointer;
+    transition: transform .08s ease, background .2s ease;
+    -webkit-tap-highlight-color: transparent;
+  }
+  button:active { transform: scale(.98); }
+  button.ok { background: #2a2a35; color: var(--fg); }
+  button.err { background: var(--warn); color: #2b1d00; }
+  .payload-box {
+    width: 100%; max-width: 320px;
+    background: var(--card); border-radius: 12px; padding: 12px;
+  }
+  .payload-box label {
+    display: block; color: var(--muted); font-size: 12px; margin-bottom: 6px;
+  }
+  #payload-text {
+    display: block; margin: 0;
+    width: 100%; box-sizing: border-box;
+    background: #0b0b0f; color: var(--fg);
+    border: 1px solid #2a2a35; border-radius: 8px;
+    padding: 10px; font-size: 11px; line-height: 1.5;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    white-space: pre-wrap; word-break: break-all; overflow-wrap: anywhere;
+    -webkit-user-select: all; user-select: all;
+    cursor: pointer;
+  }
+  .hint { color: var(--muted); font-size: 12px; text-align: center; max-width: 320px; line-height: 1.4; }
+  #debug-log {
+    width: 100%; max-width: 320px;
+    background: #06060a; border: 1px solid #2a2a35; border-radius: 8px;
+    padding: 10px; font-size: 10px; line-height: 1.4;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    color: var(--muted); max-height: 200px; overflow-y: auto;
+    white-space: pre-wrap; word-break: break-all;
+  }
+  #debug-log .ok  { color: #7ce6a8; }
+  #debug-log .err { color: #ff9b9b; }
+  #debug-log .info { color: #9fc3ff; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Pague com PIX</h1>
+  <p class="recebedor">Isabella Nail Designer</p>
+
+  <div class="qr-wrap"><div id="qr"></div></div>
+
+  <button id="copiar">Copiar c&oacute;digo PIX</button>
+
+  <p class="hint">Escaneie o QR no app do seu banco ou toque no c&oacute;digo abaixo e depois em "Copiar" no menu do celular.</p>
+
+  <div class="payload-box">
+    <label for="payload-text">C&oacute;digo copia-e-cola</label>
+    <pre id="payload-text"></pre>
+  </div>
+
+  <div class="payload-box" id="debug-box" hidden>
+    <label>Debug log (tamb&eacute;m sai no console)</label>
+    <div id="debug-log"></div>
+  </div>
+</main>
+
+<script>
+  const TAG = "[PIX]";
+  const DEBUG = new URLSearchParams(location.search).has("debug");
+  const logEl = document.getElementById("debug-log");
+  if (DEBUG) document.getElementById("debug-box").hidden = false;
+
+  function log(kind, ...args) {
+    if (!DEBUG) return;
+    const line = args.map(a => {
+      if (a instanceof Error) return a.name + ": " + a.message;
+      if (typeof a === "object") { try { return JSON.stringify(a); } catch { return String(a); } }
+      return String(a);
+    }).join(" ");
+    const ts = new Date().toISOString().slice(11, 23);
+    const full = `[${ts}] ${line}`;
+    console[kind === "err" ? "error" : kind === "info" ? "info" : "log"](TAG, ...args);
+    if (logEl) {
+      const div = document.createElement("div");
+      div.className = kind || "";
+      div.textContent = full;
+      logEl.appendChild(div);
+      logEl.scrollTop = logEl.scrollHeight;
+    }
+  }
+
+  window.addEventListener("error", (e) => log("err", "window.error", e.message, "at", e.filename + ":" + e.lineno));
+  window.addEventListener("unhandledrejection", (e) => log("err", "unhandled promise rejection", e.reason));
+
+  log("info", "boot: ua=", navigator.userAgent);
+  log("info", "boot: isSecureContext=", window.isSecureContext, "protocol=", location.protocol);
+  log("info", "boot: navigator.clipboard=", !!navigator.clipboard, "writeText=", !!(navigator.clipboard && navigator.clipboard.writeText));
+  log("info", "boot: execCommand supported=", typeof document.execCommand === "function");
+  try { log("info", "boot: queryCommandSupported(copy)=", document.queryCommandSupported && document.queryCommandSupported("copy")); }
+  catch (e) { log("err", "queryCommandSupported threw", e); }
+
+  const payload = "00020101021126400014br.gov.bcb.pix0118i7810099@gmail.com5204000053039865802BR5922ISABELLA NAIL DESIGNER6009SAO PAULO62070503***6304D9E8";
+  log("info", "payload length=", payload.length, "value=", payload);
+
+  if (typeof QRCode === "undefined") {
+    log("err", "QRCode library NOT loaded (CDN failed?)");
+  } else {
+    log("ok", "QRCode library loaded");
+    QRCode.toCanvas(document.getElementById("qr"), payload, { width: 260, margin: 1 }, (err) => {
+      if (err) log("err", "QR render failed", err);
+      else log("ok", "QR rendered");
+    });
+  }
+
+  const payloadEl = document.getElementById("payload-text");
+  payloadEl.textContent = payload;
+  log("ok", "payload text set on <pre>");
+
+  payloadEl.addEventListener("click", () => {
+    log("info", "payload-text clicked → selecting all");
+    try {
+      const range = document.createRange();
+      range.selectNodeContents(payloadEl);
+      const sel = window.getSelection();
+      sel.removeAllRanges();
+      sel.addRange(range);
+      log("ok", "selection set, toString().length=", sel.toString().length);
+    } catch (e) { log("err", "selection failed", e); }
+  });
+
+  const btn = document.getElementById("copiar");
+  const defaultLabel = "Copiar código PIX";
+
+  function flash(text, cls) {
+    btn.textContent = text;
+    btn.classList.remove("ok", "err");
+    if (cls) btn.classList.add(cls);
+    setTimeout(() => {
+      btn.textContent = defaultLabel;
+      btn.classList.remove("ok", "err");
+    }, 2500);
+  }
+
+  function iosFallbackCopy(text) {
+    log("info", "fallback: creating temp editable helper");
+    const helper = document.createElement("textarea");
+    helper.value = text;
+    helper.readOnly = false;
+    helper.contentEditable = "true";
+    helper.style.position = "fixed";
+    helper.style.top = "0";
+    helper.style.left = "0";
+    helper.style.width = "1px";
+    helper.style.height = "1px";
+    helper.style.opacity = "0";
+    helper.style.fontSize = "16px";
+    document.body.appendChild(helper);
+
+    const range = document.createRange();
+    range.selectNodeContents(helper);
+    const sel = window.getSelection();
+    sel.removeAllRanges();
+    sel.addRange(range);
+    helper.setSelectionRange(0, text.length);
+    log("info", "fallback: selection set, calling execCommand('copy')");
+
+    let ok = false;
+    try {
+      ok = document.execCommand("copy");
+      log(ok ? "ok" : "err", "fallback: execCommand returned", ok);
+    } catch (e) {
+      log("err", "fallback: execCommand threw", e);
+    }
+    document.body.removeChild(helper);
+    return ok;
+  }
+
+  btn.addEventListener("click", () => {
+    log("info", "button clicked");
+    const useApi = navigator.clipboard && window.isSecureContext;
+    log("info", "path selected:", useApi ? "clipboard API" : "execCommand fallback");
+    if (useApi) {
+      const t0 = performance.now();
+      navigator.clipboard.writeText(payload).then(
+        () => {
+          log("ok", "clipboard.writeText OK in", Math.round(performance.now()-t0), "ms");
+          flash("Copiado!", "ok");
+        },
+        (err) => {
+          log("err", "clipboard.writeText rejected:", err && err.name, err && err.message);
+          if (iosFallbackCopy(payload)) flash("Copiado!", "ok");
+          else flash("Toque no código e use Copiar", "err");
+        }
+      );
+    } else {
+      if (iosFallbackCopy(payload)) flash("Copiado!", "ok");
+      else flash("Toque no código e use Copiar", "err");
+    }
+  });
+
+  log("ok", "all handlers wired");
+</script>
+</body>
+</html>
